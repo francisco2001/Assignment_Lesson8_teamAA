@@ -1,0 +1,183 @@
+---
+title: "Geo-Scripting Assignment Lesson 8 "
+author: "Team AA Arnan Araza & Francisco Arias"
+date: "January 19, 2017"
+output: html_document
+---
+
+Assignment
+
+1) Produce one or more plots that demonstrate the relationship between the Landsat bands and the VCF tree cover.
+2)Create an lm() model and show a summary (e.g. using summary()) of the model object you created
+3)Plot the predicted tree cover raster and compare with the original VCF raster
+4)Compute the RMSE between your predicted and the actual tree cover values
+5)Calculate Differences between the predicted and actual tree cover the same for all of the 3 classes we used for the Random Forest classfication
+
+
+Clean Workspace
+
+```{r}
+rm(list=ls())
+```
+load packages
+```{r}
+library(raster)
+```
+load all the downloaded Data
+```{r}
+load("data/GewataB1.rda")
+load("data/GewataB2.rda")
+load("data/GewataB3.rda")
+load("data/GewataB4.rda")
+load("data/GewataB5.rda")
+load("data/GewataB7.rda")
+load("data/vcfGewata.rda")
+load("data/trainingPoly.rda")
+```
+
+Inspecting for outliers is a standard procedure. We assigned a value of NA to these pixels with values above 100 representing others than forest for VCF rasterLayer. 
+```{r}
+vcfGewata[vcfGewata > 100] <- NA
+```
+
+Build a brick containing all data
+```{r}
+gewata <- brick(GewataB1, GewataB2, GewataB3, GewataB4, GewataB5, GewataB7,vcfGewata)
+names(gewata) <- c("band1", "band2", "band3", "band4", "band5", "band7","VCF")
+```
+
+Extract all data to a data.frame
+```{r}
+df <- as.data.frame(getValues(gewata))
+```
+
+
+Check if preprocessing is necessary.
+
+```{r}
+hist(gewata)
+```
+
+We tried removing the outliers per band but due to time limitation we were not able to make a decent function.
+ 
+
+```{r}
+pairs(gewata)
+```
+
+Using function "pairs"reveal VIS bands bands correlation.For this assigment we did nott remove these correlated bands. We highly recomend to remove these bands and run the model again to check if there aby difference in the result. NIR has, as expected, non-redundant information.
+
+
+Applying a Linear Model
+
+```{r}
+model <- lm(VCF ~ band1 + band2 + band3 + band4 + band5 + band7, data = df)
+summary(model)
+squareroot <- summary(model)$r.square
+```
+
+After running the model we noticed that all the bands used had a hight R-square , except the band 7. This indicate that all predictors are relevant except of the layer corresponding to band 7 
+
+Use model to create predicted VCF and compare it with the actual
+```{r}
+predict_VCF <- predict(gewata, model=model, na.rm=TRUE)
+opar <- par(mfrow=c(1,2))
+plot(predict_VCF, main="Predicted forest cover", zlim=c(0,100))
+plot(vcfGewata, main="Original forest cover")
+par(opar)
+```
+
+
+To highlight the difference of the two for better visualization we created the code below.
+
+Subtraction between predicted tree cover and original VCF  raster values.
+Comparisson 
+
+```{r}
+SubtVFC_predict <- vcfGewata - predict_VCF
+par(mfrow = c(1,2))
+plot(SubtVFC_predict, main = "Diference between predicted and original VCF")
+hist(SubtVFC_predict)
+```
+
+
+Compute the RMSE between predicted and the actual tree cover values
+
+
+The first step to compute the RMSE we convert rasterLayers to dataframe
+
+```{r}
+predicted_df <- as.data.frame(predict_VCF)
+vcfGewata_df <- as.data.frame(vcfGewata)
+```
+
+Once we got the data.frame from the predecited and actual tree cover ,  we calculated the RMSE with the code below.
+
+```{r}
+RMSE <- sqrt( mean((predicted_df-vcfGewata_df)^2 , na.rm = TRUE))
+print ( paste("The RMSE value between the predicted and the actual tree cover is", RMSE))
+
+```
+
+Calculating RMSE for different classes
+
+Converting using the as.numeric() function, which takes the factor levels
+
+```{r}
+trainingPoly@data$Code <- as.numeric(trainingPoly@data$Class)
+classes <- rasterize(trainingPoly, gewata, field='Code')
+```
+
+
+Applying zonal statistics using mean value
+
+```{r}
+VCF_orig_zonal <- zonal(gewata$VCF, classes, fun=mean, na.rm=TRUE)
+predict_zonal <- zonal(predict_VCF, classes, fun=mean, na.rm=TRUE)
+
+#Tranforming to data.frame. to be use in RMSE calculations 
+
+VCF_orig_zonal_df <- as.data.frame(VCF_orig_zonal)
+predict_zonal_df <- as.data.frame(predict_zonal)
+```
+
+
+RMSE using training polygons
+
+
+```{r}
+RMSE_class1 <- sqrt(mean(VCF_orig_zonal_df[1,2]-predict_zonal_df[1,2])^2)
+RMSE_class2 <- sqrt(mean(VCF_orig_zonal_df[2,2]-predict_zonal_df[2,2])^2)
+RMSE_class3 <- sqrt(mean(VCF_orig_zonal_df[3,2]-predict_zonal_df[3,2])^2)
+
+print ( paste("The RMSE value between the predicted and the actual tree cover is", RMSE_class1))
+print ( paste("The RMSE value between the predicted and the actual tree cover is", RMSE_class2))
+print ( paste("The RMSE value between the predicted and the actual tree cover is", RMSE_class3))
+```
+
+Using training areas can give a lower RMSE in this case compared to the predict function (which is for the whole area).
+
+Forest class has the lowest RMSE.
+
+Creating a data.frame of RMSE per zone.
+
+```{r}
+Class_RMSE_matrix = matrix(c(1, 2, 3, round(RMSE_class1, digits=2), round(RMSE_class2, digits=2), round(RMSE_class3, digits=2),"cropland","forest", "wetland"), nrow=3, ncol=3)
+colnames(Class_RMSE_matrix) <- c("Class", "RMSE", "Description")
+print (Class_RMSE_matrix)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
